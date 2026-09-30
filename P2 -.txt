@@ -1,0 +1,62 @@
+P2 - SCARA Mobile Crane (Complete Enhanced Edition)
+─────────────────────────────────────────────────────────────
+WHAT'S NEW & ENHANCED:
+  • Telescoping Crane Lift + Full Ground Reach (picks cargo directly off the floor)
+  • 3 Interactive Cargo Crates: YELLOW, RED, and BLUE
+  • GUI Control Pad with Hold-to-Jog continuous buttons
+  • Live Telemetry HUD: Real-time X/Y, Heading, Lift, Joint Angles, Cargo Distance
+  • Ready-to-Grasp alignment indicator & dynamic color progress bars
+  • Preset Poses: STOW, PICK (ground), DELIVER (drop pad)
+  • Speed Modes: 1=SLOW, 2=NORMAL, 3=FAST
+  • Fully automated 1-Click AUTO PICK & PLACE routine
+  • RViz Visual Overlays (Auto-loaded):
+      - Downward laser crosshair for precision overhead targeting
+      - 3D End-effector trajectory trail
+      - Workspace reachability radius boundary ring
+
+─────────────────────────────────────────────────────────────
+TERMINAL 1 – Launch Robot & RViz (with Visual Overlays)
+─────────────────────────────────────────────────────────────
+cd ~/ros2_ws/src
+rm -rf scara_arm_description
+cp /mnt/c/Users/LENOVO/Downloads/scara_arm_description.zip .
+unzip scara_arm_description.zip
+chmod +x scara_arm_description/scripts/*.py
+cd ~/ros2_ws
+colcon build --packages-select scara_arm_description
+source install/setup.bash
+ros2 launch scara_arm_description teleop.launch.py
+
+(Note: RViz will automatically open with all models, grid, and laser crosshairs pre-configured!)
+
+─────────────────────────────────────────────────────────────
+TERMINAL 2 – Keyboard Teleop (Required for Robot Control)
+─────────────────────────────────────────────────────────────
+source ~/ros2_ws/install/setup.bash
+ros2 run scara_arm_description scara_teleop.py
+
+Keys:
+  W / S : Drive forward / back
+  A / D : Turn left / right
+  I / K : Crane column lift up / down
+  J / L : Arm shoulder (joint1)
+  U / O : Arm elbow (joint2)
+  T / G : Slider (joint3) down / up (reaches ground!)
+  R / F : Wrist rotate
+  SPACE : Gripper toggle (auto-attaches cargo when aligned)
+  N     : Respawn cargo
+  H     : Return to home pose
+  1/2/3 : Speed mode (SLOW / NORMAL / FAST)
+  Q     : Quit
+
+─────────────────────────────────────────────────────────────
+TERMINAL 3 (Optional) – GUI Control Pad & Telemetry HUD
+─────────────────────────────────────────────────────────────
+source ~/ros2_ws/install/setup.bash
+ros2 run scara_arm_description crane_control_pad.py
+
+Features:
+  - Hold-to-jog buttons for all axes
+  - Live coordinates and distance-to-cargo readout
+  - 1-Click "AUTO PICK & PLACE" button
+  - Quick presets: STOW, PICK, DELIVER

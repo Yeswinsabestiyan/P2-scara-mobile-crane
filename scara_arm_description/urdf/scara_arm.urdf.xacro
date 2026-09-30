@@ -1,0 +1,575 @@
+<?xml version="1.0"?>
+<robot name="scara_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- sim_world:=true (used by teleop.launch.py) adds a world root with virtual joints for the  -->
+  <!-- base pose, plus a pickable object and a place pad, so everything renders in RobotModel.  -->
+  <xacro:arg name="sim_world" default="false"/>
+
+  <!-- ============================================================ -->
+  <!-- CONSTANTS / DIMENSIONS                                        -->
+  <!-- ============================================================ -->
+  <xacro:property name="base_radius"  value="0.12"/>
+  <xacro:property name="base_height"  value="0.06"/>
+
+  <xacro:property name="link1_len"    value="0.30"/>
+  <xacro:property name="link2_len"    value="0.25"/>
+  <xacro:property name="link_width"   value="0.05"/>
+  <xacro:property name="link_height"  value="0.05"/>
+
+  <xacro:property name="slider_side"  value="0.05"/>
+  <xacro:property name="slider_travel" value="0.20"/>   <!-- prismatic joint3 range -->
+  <xacro:property name="rail_thickness" value="0.02"/>  <!-- visual guide rail, purely cosmetic -->
+
+  <xacro:property name="wrist_radius" value="0.02"/>
+  <xacro:property name="wrist_height" value="0.03"/>
+
+  <xacro:property name="gripper_base_x" value="0.06"/>
+  <xacro:property name="gripper_base_y" value="0.09"/>
+  <xacro:property name="gripper_base_z" value="0.02"/>
+
+  <xacro:property name="finger_x" value="0.02"/>
+  <xacro:property name="finger_y" value="0.015"/>
+  <xacro:property name="finger_z" value="0.05"/>
+  <xacro:property name="finger_open_y" value="0.035"/>   <!-- half-gap between fingers, fully open -->
+  <xacro:property name="finger_travel" value="0.02"/>    <!-- how far each finger slides to close -->
+
+  <xacro:property name="PI" value="3.14159265"/>
+
+  <!-- Mobile chassis + tyres -->
+  <xacro:property name="chassis_x" value="0.40"/>
+  <xacro:property name="chassis_y" value="0.30"/>
+  <xacro:property name="chassis_z" value="0.08"/>
+  <xacro:property name="wheel_radius" value="0.06"/>
+  <xacro:property name="wheel_width"  value="0.04"/>
+  <xacro:property name="wheel_track"  value="${chassis_y + wheel_width}"/>  <!-- left-right distance between wheel centers -->
+
+  <!-- Crane lift column – telescoping design:                        -->
+  <!--   outer_sleeve : fixed to chassis, purely visual housing        -->
+  <!--   inner_mast   : slides up/down inside the sleeve (prismatic)   -->
+  <xacro:property name="outer_sleeve_radius" value="0.065"/>
+  <xacro:property name="outer_sleeve_height" value="0.25"/>   <!-- fixed housing height -->
+  <xacro:property name="mast_radius" value="0.038"/>          <!-- inner column, thinner so it looks nested -->
+  <xacro:property name="mast_len" value="0.30"/>
+  <xacro:property name="crane_lift_travel" value="0.10"/>
+  <xacro:property name="crane_lift_down" value="0.14"/>       <!-- 0.14 puts the mast bottom at ground level -->
+
+  <!-- ============================================================ -->
+  <!-- MATERIALS                                                     -->
+  <!-- ============================================================ -->
+  <material name="base_grey">   <color rgba="0.35 0.35 0.35 1.0"/> </material>
+  <material name="arm_orange">  <color rgba="0.90 0.45 0.10 1.0"/> </material>
+  <material name="arm_blue">    <color rgba="0.15 0.35 0.75 1.0"/> </material>
+  <material name="slider_dark"> <color rgba="0.15 0.15 0.15 1.0"/> </material>
+  <material name="rail_grey">   <color rgba="0.55 0.55 0.58 1.0"/> </material>
+  <material name="wrist_green"> <color rgba="0.20 0.70 0.30 1.0"/> </material>
+  <material name="gripper_grey"><color rgba="0.25 0.25 0.28 1.0"/> </material>
+  <material name="finger_red">  <color rgba="0.80 0.10 0.10 1.0"/> </material>
+  <material name="chassis_grey"><color rgba="0.30 0.30 0.32 1.0"/> </material>
+  <material name="wheel_black"> <color rgba="0.05 0.05 0.05 1.0"/> </material>
+  <material name="mast_grey">   <color rgba="0.45 0.45 0.48 1.0"/> </material>
+  <material name="payload_yellow"><color rgba="0.95 0.85 0.10 1.0"/> </material>
+  <material name="pad_green">   <color rgba="0.15 0.75 0.30 1.0"/> </material>
+
+  <!-- ============================================================ -->
+  <!-- REUSABLE INERTIA MACROS                                       -->
+  <!-- ============================================================ -->
+  <xacro:macro name="box_inertial" params="mass x y z">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${(1/12.0) * mass * (y*y + z*z)}" ixy="0.0" ixz="0.0"
+        iyy="${(1/12.0) * mass * (x*x + z*z)}" iyz="0.0"
+        izz="${(1/12.0) * mass * (x*x + y*y)}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="cylinder_inertial" params="mass r h">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${(1/12.0) * mass * (3*r*r + h*h)}" ixy="0.0" ixz="0.0"
+        iyy="${(1/12.0) * mass * (3*r*r + h*h)}" iyz="0.0"
+        izz="${0.5 * mass * r * r}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ============================================================ -->
+  <!-- MOBILE CHASSIS                                                 -->
+  <!-- chassis_link has no parent joint here. An external node          -->
+  <!-- ("fake_diff_drive") publishes the world->chassis_link TF at    -->
+  <!-- runtime based on how far the wheels have turned, so the robot  -->
+  <!-- actually translates instead of just spinning in place.         -->
+  <!-- ============================================================ -->
+  <link name="chassis_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${chassis_x} ${chassis_y} ${chassis_z}"/></geometry>
+      <material name="chassis_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${chassis_x} ${chassis_y} ${chassis_z}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="4.0" x="${chassis_x}" y="${chassis_y}" z="${chassis_z}"/>
+  </link>
+
+  <xacro:if value="$(arg sim_world)">
+    <link name="world"/>
+
+    <!-- Virtual planar base: x, y and yaw joints let a node place the whole robot in the world. -->
+    <link name="chassis_x_link"/>
+    <link name="chassis_y_link"/>
+    <joint name="chassis_x_joint" type="prismatic">
+      <parent link="world"/>
+      <child link="chassis_x_link"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-100" upper="100" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="chassis_y_joint" type="prismatic">
+      <parent link="chassis_x_link"/>
+      <child link="chassis_y_link"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-100" upper="100" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="chassis_yaw_joint" type="continuous">
+      <parent link="chassis_y_link"/>
+      <child link="chassis_link"/>
+      <origin xyz="0 0 ${wheel_radius + chassis_z/2}" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+
+    <!-- Pickable object: free x, y, z, yaw relative to world (the teleop node drives these). -->
+    <link name="obj_x_link"/>
+    <link name="obj_y_link"/>
+    <link name="obj_z_link"/>
+    <joint name="obj_x_joint" type="prismatic">
+      <parent link="world"/>
+      <child link="obj_x_link"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-100" upper="100" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="obj_y_joint" type="prismatic">
+      <parent link="obj_x_link"/>
+      <child link="obj_y_link"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-100" upper="100" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="obj_z_joint" type="prismatic">
+      <parent link="obj_y_link"/>
+      <child link="obj_z_link"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-1" upper="5" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="obj_yaw_joint" type="continuous">
+      <parent link="obj_z_link"/>
+      <child link="payload"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+    <link name="payload">
+      <visual>
+        <geometry><box size="0.04 0.04 0.04"/></geometry>
+        <material name="payload_yellow"/>
+      </visual>
+    </link>
+
+    <!-- ── CARGO 2 (RED) ─────────────────────────────────────────────────── -->
+    <link name="cargo2_x_link"/>
+    <link name="cargo2_y_link"/>
+    <link name="cargo2_z_link"/>
+    <joint name="cargo2_x_joint" type="prismatic">
+      <parent link="world"/><child link="cargo2_x_link"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-100" upper="100" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="cargo2_y_joint" type="prismatic">
+      <parent link="cargo2_x_link"/><child link="cargo2_y_link"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-100" upper="100" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="cargo2_z_joint" type="prismatic">
+      <parent link="cargo2_y_link"/><child link="cargo2_z_link"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-1" upper="5" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="cargo2_yaw_joint" type="continuous">
+      <parent link="cargo2_z_link"/><child link="cargo2_payload"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+    <link name="cargo2_payload">
+      <visual>
+        <geometry><box size="0.04 0.04 0.04"/></geometry>
+        <material name="finger_red"/>
+      </visual>
+    </link>
+
+    <!-- ── CARGO 3 (BLUE) ────────────────────────────────────────────────── -->
+    <link name="cargo3_x_link"/>
+    <link name="cargo3_y_link"/>
+    <link name="cargo3_z_link"/>
+    <joint name="cargo3_x_joint" type="prismatic">
+      <parent link="world"/><child link="cargo3_x_link"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-100" upper="100" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="cargo3_y_joint" type="prismatic">
+      <parent link="cargo3_x_link"/><child link="cargo3_y_link"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-100" upper="100" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="cargo3_z_joint" type="prismatic">
+      <parent link="cargo3_y_link"/><child link="cargo3_z_link"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-1" upper="5" effort="1000" velocity="10"/>
+    </joint>
+    <joint name="cargo3_yaw_joint" type="continuous">
+      <parent link="cargo3_z_link"/><child link="cargo3_payload"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+    <link name="cargo3_payload">
+      <visual>
+        <geometry><box size="0.04 0.04 0.04"/></geometry>
+        <material name="arm_blue"/>
+      </visual>
+    </link>
+
+    <!-- Place pad on the ground -->
+    <joint name="pad_joint" type="fixed">
+      <parent link="world"/>
+      <child link="pad"/>
+      <origin xyz="0.30 -0.32 0.002" rpy="0 0 0"/>
+    </joint>
+    <link name="pad">
+      <visual>
+        <geometry><box size="0.12 0.12 0.004"/></geometry>
+        <material name="pad_green"/>
+      </visual>
+    </link>
+
+  </xacro:if>
+
+  <!-- Four tyres. The 90deg roll about X lays each cylinder on its side so its  -->
+  <!-- rotational axis (local Z, matching the joint's axis) points along Y,      -->
+  <!-- giving a properly oriented rolling wheel.                                 -->
+  <xacro:macro name="wheel" params="name x_off y_off">
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="chassis_link"/>
+      <child link="${name}_wheel"/>
+      <origin xyz="${x_off} ${y_off} ${-chassis_z/2}" rpy="1.5708 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10.0" velocity="10.0"/>
+    </joint>
+    <link name="${name}_wheel">
+      <visual>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+      <xacro:cylinder_inertial mass="0.3" r="${wheel_radius}" h="${wheel_width}"/>
+    </link>
+  </xacro:macro>
+
+  <!-- Rear wheel on each side mimics its front wheel 1:1, so the two wheels on   -->
+  <!-- a side always spin together like they would on a real rigid axle, and     -->
+  <!-- only ONE slider per side shows up in the GUI (front_left / front_right).  -->
+  <xacro:macro name="wheel_mimic" params="name x_off y_off mimic_joint">
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="chassis_link"/>
+      <child link="${name}_wheel"/>
+      <origin xyz="${x_off} ${y_off} ${-chassis_z/2}" rpy="1.5708 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="10.0" velocity="10.0"/>
+      <mimic joint="${mimic_joint}" multiplier="1.0" offset="0.0"/>
+    </joint>
+    <link name="${name}_wheel">
+      <visual>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+      <xacro:cylinder_inertial mass="0.3" r="${wheel_radius}" h="${wheel_width}"/>
+    </link>
+  </xacro:macro>
+
+  <xacro:wheel       name="front_left"  x_off="${chassis_x/2 - 0.08}"    y_off="${chassis_y/2 + wheel_width/2}"/>
+  <xacro:wheel       name="front_right" x_off="${chassis_x/2 - 0.08}"    y_off="${-(chassis_y/2 + wheel_width/2)}"/>
+  <xacro:wheel_mimic name="rear_left"   x_off="${-(chassis_x/2 - 0.08)}" y_off="${chassis_y/2 + wheel_width/2}"    mimic_joint="front_left_wheel_joint"/>
+  <xacro:wheel_mimic name="rear_right"  x_off="${-(chassis_x/2 - 0.08)}" y_off="${-(chassis_y/2 + wheel_width/2)}" mimic_joint="front_right_wheel_joint"/>
+
+  <!-- ============================================================ -->
+  <!-- CRANE LIFT – TELESCOPING DESIGN                               -->
+  <!-- A fixed OUTER SLEEVE bolted to the chassis (cosmetic housing) -->
+  <!-- and a thinner INNER COLUMN that slides up/down through it.    -->
+  <!-- ============================================================ -->
+
+  <!-- Fixed outer sleeve (housing) – does NOT move -->
+  <joint name="outer_sleeve_joint" type="fixed">
+    <parent link="chassis_link"/>
+    <child link="outer_sleeve_link"/>
+    <origin xyz="0 0 ${chassis_z/2}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="outer_sleeve_link">
+    <visual>
+      <origin xyz="0 0 ${outer_sleeve_height/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${outer_sleeve_radius}" length="${outer_sleeve_height}"/></geometry>
+      <material name="chassis_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${outer_sleeve_height/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${outer_sleeve_radius}" length="${outer_sleeve_height}"/></geometry>
+    </collision>
+    <xacro:cylinder_inertial mass="0.5" r="${outer_sleeve_radius}" h="${outer_sleeve_height}"/>
+  </link>
+
+  <!-- Inner column (slides up/down inside the sleeve) -->
+  <joint name="crane_lift_joint" type="prismatic">
+    <parent link="chassis_link"/>
+    <child link="mast_link"/>
+    <origin xyz="0 0 ${chassis_z/2}" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${-crane_lift_down}" upper="${crane_lift_travel}" effort="50.0" velocity="0.1"/>
+  </joint>
+
+  <link name="mast_link">
+    <visual>
+      <origin xyz="0 0 ${mast_len/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${mast_radius}" length="${mast_len}"/></geometry>
+      <material name="mast_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${mast_len/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${mast_radius}" length="${mast_len}"/></geometry>
+    </collision>
+    <xacro:cylinder_inertial mass="1.5" r="${mast_radius}" h="${mast_len}"/>
+  </link>
+
+  <joint name="mast_to_base" type="fixed">
+    <parent link="mast_link"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 ${mast_len}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================ -->
+  <!-- BASE LINK (turntable, joint1 rotates the arm from here)       -->
+  <!-- ============================================================ -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${base_height/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${base_radius}" length="${base_height}"/></geometry>
+      <material name="base_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${base_height/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${base_radius}" length="${base_height}"/></geometry>
+    </collision>
+    <xacro:cylinder_inertial mass="2.0" r="${base_radius}" h="${base_height}"/>
+  </link>
+
+  <!-- ============================================================ -->
+  <!-- JOINT 1 (revolute, Z-up) : base_link -> link1 (upper arm)     -->
+  <!-- ============================================================ -->
+  <joint name="joint1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <origin xyz="0 0 ${base_height}" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${-PI}" upper="${PI}" effort="20.0" velocity="2.0"/>
+  </joint>
+
+  <link name="link1">
+    <visual>
+      <origin xyz="${link1_len/2} 0 0" rpy="0 0 0"/>
+      <geometry><box size="${link1_len} ${link_width} ${link_height}"/></geometry>
+      <material name="arm_orange"/>
+    </visual>
+    <collision>
+      <origin xyz="${link1_len/2} 0 0" rpy="0 0 0"/>
+      <geometry><box size="${link1_len} ${link_width} ${link_height}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="1.2" x="${link1_len}" y="${link_width}" z="${link_height}"/>
+  </link>
+
+  <!-- ============================================================ -->
+  <!-- JOINT 2 (revolute, Z-up) : link1 -> link2 (forearm)           -->
+  <!-- ============================================================ -->
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="${link1_len} 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${-2.8}" upper="${2.8}" effort="15.0" velocity="2.0"/>
+  </joint>
+
+  <link name="link2">
+    <visual>
+      <origin xyz="${link2_len/2} 0 0" rpy="0 0 0"/>
+      <geometry><box size="${link2_len} ${link_width} ${link_height}"/></geometry>
+      <material name="arm_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="${link2_len/2} 0 0" rpy="0 0 0"/>
+      <geometry><box size="${link2_len} ${link_width} ${link_height}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="0.9" x="${link2_len}" y="${link_width}" z="${link_height}"/>
+  </link>
+
+  <!-- ============================================================ -->
+  <!-- VISUAL RAIL (fixed, cosmetic only) : shows the Z-column that   -->
+  <!-- the carriage (link3) actually slides along, so the prismatic  -->
+  <!-- motion reads as a proper linear slide instead of a floating   -->
+  <!-- cube.                                                          -->
+  <!-- ============================================================ -->
+  <joint name="rail_mount" type="fixed">
+    <parent link="link2"/>
+    <child link="z_rail"/>
+    <origin xyz="${link2_len} 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="z_rail">
+    <visual>
+      <origin xyz="0 0 ${-slider_travel/2}" rpy="0 0 0"/>
+      <geometry><box size="${rail_thickness} ${rail_thickness} ${slider_travel}"/></geometry>
+      <material name="rail_grey"/>
+    </visual>
+    <!-- no collision on the rail: it's a visual guide, not a physical part -->
+  </link>
+
+  <!-- ============================================================ -->
+  <!-- JOINT 3 (prismatic, Z) : link2 -> link3 (carriage on the rail) -->
+  <!-- limit: 0 = fully retracted (flush with link2), -travel = down  -->
+  <!-- ============================================================ -->
+  <joint name="joint3" type="prismatic">
+    <parent link="link2"/>
+    <child link="link3"/>
+    <origin xyz="${link2_len} 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${-slider_travel}" upper="0.0" effort="30.0" velocity="0.1"/>
+  </joint>
+
+  <link name="link3">
+    <visual>
+      <!-- hangs BELOW the mount point instead of straddling it, so it       -->
+      <!-- sits flush against link2 at the retracted (0) position instead   -->
+      <!-- of clipping through it -->
+      <origin xyz="0 0 ${-slider_side/2}" rpy="0 0 0"/>
+      <geometry><box size="${slider_side} ${slider_side} ${slider_side}"/></geometry>
+      <material name="slider_dark"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${-slider_side/2}" rpy="0 0 0"/>
+      <geometry><box size="${slider_side} ${slider_side} ${slider_side}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="0.4" x="${slider_side}" y="${slider_side}" z="${slider_side}"/>
+  </link>
+
+  <!-- ============================================================ -->
+  <!-- JOINT 4 (revolute, Z) : link3 -> link4 (wrist)                 -->
+  <!-- ============================================================ -->
+  <joint name="joint4" type="revolute">
+    <parent link="link3"/>
+    <child link="link4"/>
+    <origin xyz="0 0 ${-slider_side - wrist_height/2}" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${-PI}" upper="${PI}" effort="5.0" velocity="3.0"/>
+  </joint>
+
+  <link name="link4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="${wrist_radius}" length="${wrist_height}"/></geometry>
+      <material name="wrist_green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="${wrist_radius}" length="${wrist_height}"/></geometry>
+    </collision>
+    <xacro:cylinder_inertial mass="0.1" r="${wrist_radius}" h="${wrist_height}"/>
+  </link>
+
+  <!-- ============================================================ -->
+  <!-- GRIPPER BASE (fixed to wrist)                                  -->
+  <!-- ============================================================ -->
+  <joint name="gripper_mount" type="fixed">
+    <parent link="link4"/>
+    <child link="gripper_base"/>
+    <origin xyz="0 0 ${-wrist_height/2 - gripper_base_z/2}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="gripper_base">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${gripper_base_x} ${gripper_base_y} ${gripper_base_z}"/></geometry>
+      <material name="gripper_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${gripper_base_x} ${gripper_base_y} ${gripper_base_z}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="0.15" x="${gripper_base_x}" y="${gripper_base_y}" z="${gripper_base_z}"/>
+  </link>
+
+  <!-- ============================================================ -->
+  <!-- LEFT FINGER (prismatic, Y) : the driven jaw                    -->
+  <!-- value 0 = closed, +finger_travel = fully open                 -->
+  <!-- ============================================================ -->
+  <joint name="left_finger_joint" type="prismatic">
+    <parent link="gripper_base"/>
+    <child link="left_finger"/>
+    <origin xyz="0 ${finger_open_y - finger_travel} ${-gripper_base_z/2 - finger_z/2}" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0.0" upper="${finger_travel}" effort="5.0" velocity="0.05"/>
+  </joint>
+
+  <link name="left_finger">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${finger_x} ${finger_y} ${finger_z}"/></geometry>
+      <material name="finger_red"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${finger_x} ${finger_y} ${finger_z}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="0.05" x="${finger_x}" y="${finger_y}" z="${finger_z}"/>
+  </link>
+
+  <!-- ============================================================ -->
+  <!-- RIGHT FINGER : mirrors the left finger via a mimic joint, so  -->
+  <!-- only ONE slider (left_finger_joint) appears in the GUI and    -->
+  <!-- both jaws open/close together, symmetrically.                 -->
+  <!-- ============================================================ -->
+  <joint name="right_finger_joint" type="prismatic">
+    <parent link="gripper_base"/>
+    <child link="right_finger"/>
+    <origin xyz="0 ${-(finger_open_y - finger_travel)} ${-gripper_base_z/2 - finger_z/2}" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="${-finger_travel}" upper="0.0" effort="5.0" velocity="0.05"/>
+    <mimic joint="left_finger_joint" multiplier="-1.0" offset="0.0"/>
+  </joint>
+
+  <link name="right_finger">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${finger_x} ${finger_y} ${finger_z}"/></geometry>
+      <material name="finger_red"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${finger_x} ${finger_y} ${finger_z}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="0.05" x="${finger_x}" y="${finger_y}" z="${finger_z}"/>
+  </link>
+
+  <!-- Tool-center-point frame: sits at the fingertip midpoint, useful later for IK/MoveIt -->
+  <joint name="tcp_joint" type="fixed">
+    <parent link="gripper_base"/>
+    <child link="tool0"/>
+    <origin xyz="0 0 ${-gripper_base_z/2 - finger_z}" rpy="0 0 0"/>
+  </joint>
+  <link name="tool0"/>
+
+</robot>

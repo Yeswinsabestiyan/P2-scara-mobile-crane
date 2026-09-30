@@ -1,0 +1,38 @@
+# ROS 2 build directories
+build/
+install/
+log/
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+develop-eggs/
+eggs/
+.eggs/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+*~
+*.bak
+
+# Archives
+*.zip
+*.tar.gz
+
+# OS artifacts
+Thumbs.db
+.DS_Store

@@ -1,0 +1,25 @@
+SCARA MOBILE CRANE - CONTROLS
+─────────────────────────────────────────────
+KEYBOARD SHORTCUTS (Teleop & GUI):
+  W / S   drive forward / back
+  A / D   turn left / right
+  I / K   crane column up / down (telescoping mast)
+  J / L   arm shoulder (joint1) left / right
+  U / O   arm elbow (joint2)
+  T / G   slider (joint3) up / down (full ground reach!)
+  R / F   wrist (joint4) rotate
+  SPACE   close / open gripper (picks cargo when aligned)
+  N       respawn cargo in front of the crane
+  H       arm back to home pose
+  1       SLOW mode   (fine positioning)
+  2       NORMAL mode (standard speed)
+  3       FAST mode   (quick transport)
+  Q       quit
+
+GUI CONTROL PAD FEATURES:
+  • Hold-to-jog buttons (hold button for continuous motion)
+  • Live Telemetry HUD: X/Y, Heading, Lift, Arm Angles, Gripper State
+  • Distance-to-Cargo meter & READY-TO-GRASP LED indicator
+  • Color-coded Lift & Cargo distance progress bars
+  • One-click Preset Poses: STOW, PICK (ground), DELIVER (pad)
+  • One-click AUTO PICK & PLACE sequence
